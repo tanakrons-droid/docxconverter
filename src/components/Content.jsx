@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import mammoth from 'mammoth';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileArrowUp, faFileImport, faCopy, faCircleNotch } from '@fortawesome/free-solid-svg-icons';
+import { faFileArrowUp, faFileImport, faCopy, faCircleNotch, faCheck } from '@fortawesome/free-solid-svg-icons';
 import ImgMockup from '../assets/images/img-mockup.jpg';
 
 function Content() {
@@ -45,8 +45,33 @@ function Content() {
   };
 
   const handleConvert = async () => {
+    // ตรวจสอบว่าไฟล์ถูกเลือกแล้วหรือยัง
+    if (!file) {
+      alert('กรุณาเลือกไฟล์ DOCX ก่อนประมวลผล');
+      return;
+    }
+    
+    // ตรวจสอบประเภทไฟล์
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      alert('กรุณาเลือกไฟล์ประเภท DOCX เท่านั้น');
+      return;
+    }
+    
+    // ตรวจสอบขนาดไฟล์ (จำกัดที่ 100MB)
+    if (file.size > 100 * 1024 * 1024) {
+      alert('ขนาดไฟล์ใหญ่เกินไป กรุณาเลือกไฟล์ที่มีขนาดไม่เกิน 100MB');
+      return;
+    }
+    
+    // แสดงคำเตือนสำหรับไฟล์ขนาดใหญ่
+    if (file.size > 50 * 1024 * 1024) {
+      const confirmLargeFile = window.confirm(`ไฟล์ที่เลือกมีขนาด ${(file.size / (1024 * 1024)).toFixed(1)}MB ซึ่งค่อนข้างใหญ่ การประมวลผลอาจใช้เวลานาน คุณต้องการดำเนินการต่อหรือไม่?`);
+      if (!confirmLargeFile) {
+        return;
+      }
+    }
+    
     setIsLoading(true);
-    if (!file) return;
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -275,6 +300,22 @@ function Content() {
         setHtmlContent(htmlString.trim());
       } catch (error) {
         console.error('Conversion error:', error);
+        
+        // แสดงข้อความข้อผิดพลาดที่เข้าใจง่าย
+        let errorMessage = 'เกิดข้อผิดพลาดในการแปลงไฟล์';
+        
+        if (error.message.includes('Invalid file format')) {
+          errorMessage = 'รูปแบบไฟล์ไม่ถูกต้อง กรุณาเลือกไฟล์ DOCX ที่ถูกต้อง';
+        } else if (error.message.includes('File too large')) {
+          errorMessage = 'ไฟล์มีขนาดใหญ่เกินไป กรุณาเลือกไฟล์ที่มีขนาดเล็กกว่า';
+        } else if (error.message.includes('Corrupted file')) {
+          errorMessage = 'ไฟล์เสียหาย กรุณาเลือกไฟล์ที่สมบูรณ์';
+        } else if (error.message.includes('Unsupported format')) {
+          errorMessage = 'รูปแบบไฟล์ไม่รองรับ กรุณาเลือกไฟล์ DOCX ที่สร้างจาก Microsoft Word';
+        }
+        
+        alert(errorMessage);
+        setHtmlContent('');
       } finally {
         setIsLoading(false);
       }
@@ -327,13 +368,39 @@ function Content() {
           <div className="col-right">
             <div className="space-right">
               <div className="code-content">
-                <div className="content-detail">
-                  <div className="content-wrapper" dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
+                {/* Header Bar */}
+                <div className="code-header">
+                  <div className="code-header-left">
+                    <div className="code-dots">
+                      <span className="dot dot-red"></span>
+                      <span className="dot dot-yellow"></span>
+                      <span className="dot dot-green"></span>
+                    </div>
+                    <span className="code-title">Preview Content</span>
+                  </div>
+                  <div className="code-header-right">
+                    <span className="code-language">HTML</span>
+                    <span className="code-lines">{htmlContent ? htmlContent.split('\n').length : 0} lines</span>
+                    <button 
+                      onClick={handleCopy} 
+                      className={`copy-btn-header ${isCopied ? 'copied' : ''}`}
+                      disabled={!htmlContent}
+                      title={!htmlContent ? 'No content to copy' : 'Copy to clipboard'}
+                    >
+                      <FontAwesomeIcon icon={isCopied ? faCheck : faCopy} />
+                      <span className="copy-btn-text">
+                        {isCopied ? 'Copied!' : 'Copy'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
-                <button onClick={handleCopy} className="copy-btn">
-                  <FontAwesomeIcon icon={faCopy} />
-                  {isCopied ? 'Copied!' : 'Copy to Clipboard'}
-                </button>
+                
+                {/* Content Preview */}
+                <div className="code-wrapper">
+                  <div className="content-detail">
+                    <div className="content-wrapper" dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -3,7 +3,7 @@ import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileImport, faCopy, faLaptop, faMobileScreenButton } from '@fortawesome/free-solid-svg-icons';
+import { faFileImport, faCopy, faLaptop, faMobileScreenButton, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 function Scss() {
   const [inputCSSNotebook, setInputCSSNotebook] = useState('');
@@ -198,24 +198,76 @@ function Scss() {
               <div className="tab-content">
                 <div className={`tab-content-item ${activeTab === 'notebook' ? 'active' : ''}`}>
                   <div className="code-content">
-                    <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
-                      {outputCSSNotebook}
-                    </SyntaxHighlighter>
-                    <button onClick={handleCopyNotebook} className="copy-btn">
-                      <FontAwesomeIcon icon={faCopy} />
-                      {isNotebookCopied ? 'Copied!' : 'Copy to Clipboard'}
-                    </button>
+                    {/* Header Bar */}
+                    <div className="code-header">
+                      <div className="code-header-left">
+                        <div className="code-dots">
+                          <span className="dot dot-red"></span>
+                          <span className="dot dot-yellow"></span>
+                          <span className="dot dot-green"></span>
+                        </div>
+                        <span className="code-title">Notebook CSS</span>
+                      </div>
+                      <div className="code-header-right">
+                        <span className="code-language">CSS</span>
+                        <span className="code-lines">{outputCSSNotebook ? outputCSSNotebook.split('\n').length : 0} lines</span>
+                        <button 
+                          onClick={handleCopyNotebook} 
+                          className={`copy-btn-header ${isNotebookCopied ? 'copied' : ''}`}
+                          disabled={!outputCSSNotebook}
+                          title={!outputCSSNotebook ? 'No content to copy' : 'Copy to clipboard'}
+                        >
+                          <FontAwesomeIcon icon={isNotebookCopied ? faCheck : faCopy} />
+                          <span className="copy-btn-text">
+                            {isNotebookCopied ? 'Copied!' : 'Copy'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Code Content */}
+                    <div className="code-wrapper">
+                      <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
+                        {outputCSSNotebook}
+                      </SyntaxHighlighter>
+                    </div>
                   </div>
                 </div>
                 <div className={`tab-content-item ${activeTab === 'mobile' ? 'active' : ''}`}>
                   <div className="code-content">
-                    <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
-                      {outputCSSMobile}
-                    </SyntaxHighlighter>
-                    <button onClick={handleCopyMobile} className="copy-btn">
-                      <FontAwesomeIcon icon={faCopy} />
-                      {isMobileCopied ? 'Copied!' : 'Copy to Clipboard'}
-                    </button>
+                    {/* Header Bar */}
+                    <div className="code-header">
+                      <div className="code-header-left">
+                        <div className="code-dots">
+                          <span className="dot dot-red"></span>
+                          <span className="dot dot-yellow"></span>
+                          <span className="dot dot-green"></span>
+                        </div>
+                        <span className="code-title">Mobile CSS</span>
+                      </div>
+                      <div className="code-header-right">
+                        <span className="code-language">CSS</span>
+                        <span className="code-lines">{outputCSSMobile ? outputCSSMobile.split('\n').length : 0} lines</span>
+                        <button 
+                          onClick={handleCopyMobile} 
+                          className={`copy-btn-header ${isMobileCopied ? 'copied' : ''}`}
+                          disabled={!outputCSSMobile}
+                          title={!outputCSSMobile ? 'No content to copy' : 'Copy to clipboard'}
+                        >
+                          <FontAwesomeIcon icon={isMobileCopied ? faCheck : faCopy} />
+                          <span className="copy-btn-text">
+                            {isMobileCopied ? 'Copied!' : 'Copy'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Code Content */}
+                    <div className="code-wrapper">
+                      <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
+                        {outputCSSMobile}
+                      </SyntaxHighlighter>
+                    </div>
                   </div>
                 </div>
               </div>

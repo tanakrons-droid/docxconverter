@@ -4,7 +4,7 @@ import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileArrowUp, faFileImport, faCopy, faCircleNotch } from '@fortawesome/free-solid-svg-icons';
+import { faFileArrowUp, faFileImport, faCopy, faCircleNotch, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 
 function Html() {
@@ -32,9 +32,78 @@ function Html() {
     });
   };
 
+  // ล้างฟอร์แมตแปลกๆ อัตโนมัติ เช่น span, font, style ที่มาจาก Word หรือ Docs
+  const cleanHTML = (html) => {
+    // ลบ <span> tags ทั้งหมด (เก็บเฉพาะเนื้อหาภายใน)
+    html = html.replace(/<span[^>]*>/gi, '');
+    html = html.replace(/<\/span>/gi, '');
+    
+    // ลบ <font> tags ทั้งหมด (เก็บเฉพาะเนื้อหาภายใน)
+    html = html.replace(/<font[^>]*>/gi, '');
+    html = html.replace(/<\/font>/gi, '');
+    
+    // ลบ inline style attributes ที่มาจาก Word/Docs
+    // ลบ style ที่มี mso- prefix (Microsoft Office styles)
+    html = html.replace(/\s*style="[^"]*mso-[^"]*"/gi, '');
+    
+    // ลบ style attributes ที่มีคุณสมบัติที่ไม่ต้องการจาก Word/Docs
+    html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Times New Roman['"]?[^"]*"/gi, '');
+    html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Calibri['"]?[^"]*"/gi, '');
+    html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Arial['"]?[^"]*"/gi, '');
+    
+    // ลบ style ที่มี background-color: white หรือ background: white
+    html = html.replace(/\s*style="[^"]*background(?:-color)?:\s*(?:white|#ffffff|rgb\(255,\s*255,\s*255\))[^"]*"/gi, '');
+    
+    // ลบ style ที่มี font-size จาก Word
+    html = html.replace(/\s*style="[^"]*font-size:\s*\d+(?:\.\d+)?(?:pt|px)[^"]*"/gi, '');
+    
+    // ลบ empty attributes และ whitespace ที่ไม่จำเป็น
+    html = html.replace(/\s+class=""/gi, '');
+    html = html.replace(/\s+id=""/gi, '');
+    html = html.replace(/\s+style=""/gi, '');
+    
+    // ลบ attributes ที่ไม่จำเป็นจาก Word/Docs
+    html = html.replace(/\s+lang="[^"]*"/gi, '');
+    html = html.replace(/\s+xml:lang="[^"]*"/gi, '');
+    
+    // ลบ <p> tags ที่ wrap HTML comments
+    html = html.replace(/<p>\s*(<!--[^>]*-->)\s*<\/p>/gi, '$1');
+    
+    // ลบ empty tags ที่อาจเกิดจากการลบ span/font
+    html = html.replace(/<p>\s*<\/p>/gi, '');
+    html = html.replace(/<li>\s*<\/li>/gi, '');
+    
+    return html;
+  };
+
   const handleConvert = async () => {
+    // ตรวจสอบว่าไฟล์ถูกเลือกแล้วหรือยัง
+    if (!file) {
+      alert('กรุณาเลือกไฟล์ DOCX ก่อนประมวลผล');
+      return;
+    }
+    
+    // ตรวจสอบประเภทไฟล์
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      alert('กรุณาเลือกไฟล์ประเภท DOCX เท่านั้น');
+      return;
+    }
+    
+    // ตรวจสอบขนาดไฟล์ (จำกัดที่ 100MB)
+    if (file.size > 100 * 1024 * 1024) {
+      alert('ขนาดไฟล์ใหญ่เกินไป กรุณาเลือกไฟล์ที่มีขนาดไม่เกิน 100MB');
+      return;
+    }
+    
+    // แสดงคำเตือนสำหรับไฟล์ขนาดใหญ่
+    if (file.size > 50 * 1024 * 1024) {
+      const confirmLargeFile = window.confirm(`ไฟล์ที่เลือกมีขนาด ${(file.size / (1024 * 1024)).toFixed(1)}MB ซึ่งค่อนข้างใหญ่ การประมวลผลอาจใช้เวลานาน คุณต้องการดำเนินการต่อหรือไม่?`);
+      if (!confirmLargeFile) {
+        return;
+      }
+    }
+    
     setIsLoading(true);
-    if (!file) return;
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -210,18 +279,31 @@ function Html() {
 
         function convertTableToGutenberg(table) {
           const rows = Array.from(table.querySelectorAll('tr'));
+          
+          // สร้าง header cells พร้อม class และ data-align สำหรับจัดกลาง
           const headerCells = Array.from(rows.shift().querySelectorAll('th')).map(cell => {
-            const cellContent = cell.textContent.trim();
-            return `<th>${cellContent}</th>`;
+            const cellContent = cell.innerHTML.trim(); // ใช้ innerHTML แทน textContent เพื่อคงการ format
+            const existingClass = cell.getAttribute('class') || '';
+            const classList = existingClass.split(' ').filter(c => c && !c.includes('has-text-align'));
+            classList.push('has-text-align-center');
+            const classAttr = classList.join(' ').trim() ? ` class="${classList.join(' ').trim()}"` : '';
+            
+            return `<th${classAttr} data-align="center">${cellContent}</th>`;
           }).join('');
           
           const thead = `<thead><tr>${headerCells}</tr></thead>`;
         
+          // สร้าง body rows พร้อม class และ data-align สำหรับจัดซ้าย
           const bodyRows = rows.map(tr => {
             const cells = Array.from(tr.querySelectorAll('th, td')).map(cell => {
               const cellTag = 'td';
-              const cellContent = cell.textContent.trim();
-              return `<${cellTag}>${cellContent}</${cellTag}>`;
+              const cellContent = cell.innerHTML.trim(); // ใช้ innerHTML แทน textContent เพื่อคงการ format
+              const existingClass = cell.getAttribute('class') || '';
+              const classList = existingClass.split(' ').filter(c => c && !c.includes('has-text-align'));
+              classList.push('has-text-align-left');
+              const classAttr = classList.join(' ').trim() ? ` class="${classList.join(' ').trim()}"` : '';
+              
+              return `<${cellTag}${classAttr} data-align="left">${cellContent}</${cellTag}>`;
             }).join('');
             return `<tr>${cells}</tr>`;
           }).join('');
@@ -272,10 +354,28 @@ function Html() {
         htmlString = htmlString.replace(/<hr \/>/g, '\n<hr />');
         htmlString = htmlString.replace(/𝗖𝗼𝗼𝗹 𝗬𝗮𝗴 𝟭𝟬𝟲𝟰/g, 'Cool Yag 1064');
 
+        // ล้างฟอร์แมตแปลกๆ อัตโนมัติก่อนแสดงผล (Clear Unknown Formatting)
+        htmlString = cleanHTML(htmlString);
 
         setHtmlContent(htmlString.trim());
       } catch (error) {
         console.error('Conversion error:', error);
+        
+        // แสดงข้อความข้อผิดพลาดที่เข้าใจง่าย
+        let errorMessage = 'เกิดข้อผิดพลาดในการแปลงไฟล์';
+        
+        if (error.message.includes('Invalid file format')) {
+          errorMessage = 'รูปแบบไฟล์ไม่ถูกต้อง กรุณาเลือกไฟล์ DOCX ที่ถูกต้อง';
+        } else if (error.message.includes('File too large')) {
+          errorMessage = 'ไฟล์มีขนาดใหญ่เกินไป กรุณาเลือกไฟล์ที่มีขนาดเล็กกว่า';
+        } else if (error.message.includes('Corrupted file')) {
+          errorMessage = 'ไฟล์เสียหาย กรุณาเลือกไฟล์ที่สมบูรณ์';
+        } else if (error.message.includes('Unsupported format')) {
+          errorMessage = 'รูปแบบไฟล์ไม่รองรับ กรุณาเลือกไฟล์ DOCX ที่สร้างจาก Microsoft Word';
+        }
+        
+        alert(errorMessage);
+        setHtmlContent('');
       } finally {
         setIsLoading(false);
       }
@@ -330,13 +430,39 @@ function Html() {
           <div className="col-right">
             <div className="space-right">
               <div className="code-content">
-                <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
-                  {htmlContent}
-                </SyntaxHighlighter>
-                <button onClick={handleCopy} className="copy-btn">
-                  <FontAwesomeIcon icon={faCopy} />
-                  {isCopied ? 'Copied!' : 'Copy to Clipboard'}
-                </button>
+                {/* Header Bar */}
+                <div className="code-header">
+                  <div className="code-header-left">
+                    <div className="code-dots">
+                      <span className="dot dot-red"></span>
+                      <span className="dot dot-yellow"></span>
+                      <span className="dot dot-green"></span>
+                    </div>
+                    <span className="code-title">Output Code</span>
+                  </div>
+                  <div className="code-header-right">
+                    <span className="code-language">HTML</span>
+                    <span className="code-lines">{htmlContent ? htmlContent.split('\n').length : 0} lines</span>
+                    <button 
+                      onClick={handleCopy} 
+                      className={`copy-btn-header ${isCopied ? 'copied' : ''}`}
+                      disabled={!htmlContent}
+                      title={!htmlContent ? 'No content to copy' : 'Copy to clipboard'}
+                    >
+                      <FontAwesomeIcon icon={isCopied ? faCheck : faCopy} />
+                      <span className="copy-btn-text">
+                        {isCopied ? 'Copied!' : 'Copy'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Code Content */}
+                <div className="code-wrapper">
+                  <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
+                    {htmlContent}
+                  </SyntaxHighlighter>
+                </div>
               </div>
             </div>
           </div>

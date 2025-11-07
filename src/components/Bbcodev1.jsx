@@ -4,7 +4,7 @@ import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileArrowUp, faFileImport, faCopy, faCircleNotch } from '@fortawesome/free-solid-svg-icons';
+import { faFileArrowUp, faFileImport, faCopy, faCircleNotch, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 
 function Html() {
@@ -336,13 +336,39 @@ function Html() {
           <div className="col-right">
             <div className="space-right">
               <div className="code-content">
-                <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
-                  {htmlContent}
-                </SyntaxHighlighter>
-                <button onClick={handleCopy} className="copy-btn">
-                  <FontAwesomeIcon icon={faCopy} />
-                  {isCopied ? 'Copied!' : 'Copy to Clipboard'}
-                </button>
+                {/* Header Bar */}
+                <div className="code-header">
+                  <div className="code-header-left">
+                    <div className="code-dots">
+                      <span className="dot dot-red"></span>
+                      <span className="dot dot-yellow"></span>
+                      <span className="dot dot-green"></span>
+                    </div>
+                    <span className="code-title">Output Code</span>
+                  </div>
+                  <div className="code-header-right">
+                    <span className="code-language">BBCode v1</span>
+                    <span className="code-lines">{htmlContent ? htmlContent.split('\n').length : 0} lines</span>
+                    <button 
+                      onClick={handleCopy} 
+                      className={`copy-btn-header ${isCopied ? 'copied' : ''}`}
+                      disabled={!htmlContent}
+                      title={!htmlContent ? 'No content to copy' : 'Copy to clipboard'}
+                    >
+                      <FontAwesomeIcon icon={isCopied ? faCheck : faCopy} />
+                      <span className="copy-btn-text">
+                        {isCopied ? 'Copied!' : 'Copy'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Code Content */}
+                <div className="code-wrapper">
+                  <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
+                    {htmlContent}
+                  </SyntaxHighlighter>
+                </div>
               </div>
             </div>
           </div>
