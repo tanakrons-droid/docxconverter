@@ -247,8 +247,8 @@ export default function FbReelsGenerator({ variant = "modal" }) {
     }
   };
 
-  // URL Resolver function - Auto-resolve ผ่าน Serverless Function
-  const handleResolveUrl = async () => {
+  // Auto-resolve ผ่าน Serverless Function
+  const handleAutoResolve = async () => {
     const currentUrl = url.trim();
     
     if (!currentUrl) {
@@ -266,12 +266,10 @@ export default function FbReelsGenerator({ variant = "modal" }) {
     setResolveError("");
 
     try {
-      // Try to use Netlify/Vercel Function first (server-side resolve)
-      const apiEndpoint = process.env.NODE_ENV === 'production' 
-        ? '/.netlify/functions/resolve-url'  // Production: Netlify Function
-        : '/api/resolve-url';  // Development: You can set up a dev proxy
+      // Try to use Netlify Function
+      const apiEndpoint = '/.netlify/functions/resolve-url';
 
-      console.log('🚀 Attempting server-side resolve via:', apiEndpoint);
+      console.log('🚀 Attempting auto-resolve via:', apiEndpoint);
       
       const response = await fetch(`${apiEndpoint}?url=${encodeURIComponent(currentUrl)}`, {
         method: 'GET',
@@ -288,7 +286,7 @@ export default function FbReelsGenerator({ variant = "modal" }) {
 
       if (data.success && data.finalUrl && data.finalUrl !== currentUrl) {
         // Successfully resolved!
-        console.log('✅ Server-side resolve succeeded:', data.finalUrl);
+        console.log('✅ Auto-resolve succeeded:', data.finalUrl);
         
         setUrl(data.finalUrl);
         setResolveStatus("success");
@@ -307,33 +305,59 @@ export default function FbReelsGenerator({ variant = "modal" }) {
       }
 
     } catch (error) {
-      console.error("❌ Server-side resolve failed:", error);
+      console.error("❌ Auto-resolve failed:", error);
       
-      // Fallback: Manual method
-      console.log("⚠️ Falling back to manual method");
-      
-      // Open in new tab
-      window.open(currentUrl, '_blank', 'noopener,noreferrer');
-      
-      setResolveStatus("manual");
+      setResolveStatus("error");
       setResolveError(
-        "⚠️ Auto-resolve ไม่สามารถใช้งานได้ในตอนนี้\n" +
-        "(ต้อง deploy บน Netlify/Vercel ก่อน)\n\n" +
-        "✨ วิธีแปลงลิงก์ด้วยตนเอง:\n\n" +
-        "1️⃣ แท็บใหม่กำลังเปิด... รอให้หน้าเว็บโหลดเสร็จ\n" +
-        "2️⃣ Facebook จะ redirect ไปยัง URL จริงของ Reel อัตโนมัติ\n" +
-        "3️⃣ คัดลอก URL จาก Address Bar (ด้านบนของเบราว์เซอร์)\n" +
-        "    → มันจะเป็น: https://www.facebook.com/reel/xxxxx/\n" +
-        "4️⃣ วาง URL ที่คัดลอกในช่องด้านบนนี้\n\n" +
-        "💡 เมื่อ deploy จริง จะแปลงอัตโนมัติได้เลย!"
+        "❌ Auto-resolve ล้มเหลว\n\n" +
+        "สาเหตุที่เป็นไปได้:\n" +
+        "• ยังไม่ได้ deploy บน Netlify/Vercel\n" +
+        "• ยังไม่ได้รันด้วย netlify dev\n" +
+        "• Serverless Function ไม่พร้อมใช้งาน\n\n" +
+        "💡 ลองใช้ปุ่ม \"แปลงด้วยตนเอง\" แทน"
       );
       
-      // Keep instruction visible for 30 seconds
       setTimeout(() => {
         setResolveStatus("");
         setResolveError("");
-      }, 30000);
+      }, 10000);
     }
+  };
+
+  // Manual resolve - เปิด tab ใหม่ให้คัดลอกเอง
+  const handleManualResolve = () => {
+    const currentUrl = url.trim();
+    
+    if (!currentUrl) {
+      alert("กรุณาใส่ลิงก์ก่อนดึงข้อมูล");
+      return;
+    }
+
+    // Check if it's a short link format
+    if (!currentUrl.includes("/share/r/") && !currentUrl.includes("/share/v/")) {
+      alert("ลิงก์นี้ไม่ใช่ short link ที่ต้อง resolve\n(ต้องมี /share/r/ หรือ /share/v/)");
+      return;
+    }
+
+    // Open in new tab
+    window.open(currentUrl, '_blank', 'noopener,noreferrer');
+    
+    setResolveStatus("manual");
+    setResolveError(
+      "📝 วิธีแปลงลิงก์ด้วยตนเอง:\n\n" +
+      "1️⃣ แท็บใหม่กำลังเปิด... รอให้หน้าเว็บโหลดเสร็จ\n" +
+      "2️⃣ Facebook จะ redirect ไปยัง URL จริงของ Reel อัตโนมัติ\n" +
+      "3️⃣ คัดลอก URL จาก Address Bar (ด้านบนของเบราว์เซอร์)\n" +
+      "    → มันจะเป็น: https://www.facebook.com/reel/xxxxx/\n" +
+      "4️⃣ กลับมาวาง URL ที่คัดลอกในช่องด้านบนนี้\n" +
+      "5️⃣ เสร็จแล้ว! ระบบจะสร้างโค้ด HTML ให้อัตโนมัติ"
+    );
+    
+    // Keep instruction visible for 30 seconds
+    setTimeout(() => {
+      setResolveStatus("");
+      setResolveError("");
+    }, 30000);
   };
 
   // Derived values
@@ -530,24 +554,24 @@ export default function FbReelsGenerator({ variant = "modal" }) {
 
             <div style={{ marginBottom: variant === "modal" ? '10px' : '16px' }}>
               <label style={labelStyle}>ลิงก์ Facebook Reel</label>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 <input
-                  style={{ ...inputStyle, flex: 1 }}
+                  style={{ ...inputStyle, flex: 1, minWidth: '200px' }}
                   placeholder="https://www.facebook.com/reel/... (วาง URL หรือโค้ด embed <iframe> ได้)"
                   value={url}
                   onChange={(e) => handleUrlInput(e.target.value)}
                   onPaste={handleUrlPaste}
                 />
                 <button
-                  onClick={handleResolveUrl}
+                  onClick={handleAutoResolve}
                   disabled={resolveStatus === "loading"}
                   style={{
                     padding: '12px 16px',
                     borderRadius: '8px',
                     backgroundColor: 
+                      resolveStatus === "loading" ? '#7c3aed' :
                       resolveStatus === "success" ? '#059669' : 
                       resolveStatus === "error" ? '#dc2626' : 
-                      resolveStatus === "manual" ? '#ea580c' : 
                       '#8b5cf6',
                     color: 'white',
                     border: 'none',
@@ -559,12 +583,33 @@ export default function FbReelsGenerator({ variant = "modal" }) {
                     transition: 'all 0.2s',
                     minWidth: '140px'
                   }}
-                  title="ใช้สำหรับแปลง short link (/share/r/...) เป็นลิงก์จริง"
+                  title="แปลงอัตโนมัติ (ต้องรันด้วย netlify dev หรือ deploy บน Netlify)"
                 >
-                  {resolveStatus === "loading" ? "กำลังเปิดลิงก์..." : 
-                   resolveStatus === "success" ? "✅ ดึงสำเร็จ" : 
-                   resolveStatus === "manual" ? "📋 อ่านคำแนะนำ" :
-                   "ดึงลิงก์จริง"}
+                  {resolveStatus === "loading" ? "⏳ กำลังแปลง..." : 
+                   resolveStatus === "success" ? "✅ สำเร็จ!" : 
+                   resolveStatus === "error" ? "❌ ล้มเหลว" :
+                   "🤖 แปลงอัตโนมัติ"}
+                </button>
+                <button
+                  onClick={handleManualResolve}
+                  disabled={resolveStatus === "loading"}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: resolveStatus === "manual" ? '#ea580c' : '#f59e0b',
+                    color: 'white',
+                    border: 'none',
+                    cursor: resolveStatus === "loading" ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    whiteSpace: 'nowrap',
+                    opacity: resolveStatus === "loading" ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                    minWidth: '140px'
+                  }}
+                  title="เปิด tab ใหม่เพื่อคัดลอก URL เอง"
+                >
+                  {resolveStatus === "manual" ? "📋 อ่านคำแนะนำ" : "👤 แปลงด้วยตนเอง"}
                 </button>
               </div>
               {urlNotice.msg && (
@@ -592,40 +637,51 @@ export default function FbReelsGenerator({ variant = "modal" }) {
                   fontSize: '12px',
                   borderRadius: '6px',
                   padding: '10px 12px',
-                  backgroundColor: resolveStatus === "manual" ? (isDark ? '#78350f' : '#fef3c7') : (isDark ? '#7f1d1d' : '#fee2e2'),
-                  color: resolveStatus === "manual" ? (isDark ? '#fcd34d' : '#92400e') : (isDark ? '#fca5a5' : '#991b1b'),
-                  border: resolveStatus === "manual" ? (isDark ? '1px solid #92400e' : '1px solid #fbbf24') : (isDark ? '1px solid #991b1b' : '1px solid #fecaca'),
+                  backgroundColor: 
+                    resolveStatus === "manual" ? (isDark ? '#78350f' : '#fef3c7') : 
+                    resolveStatus === "error" ? (isDark ? '#7f1d1d' : '#fee2e2') :
+                    (isDark ? '#1e3a8a' : '#dbeafe'),
+                  color: 
+                    resolveStatus === "manual" ? (isDark ? '#fcd34d' : '#92400e') : 
+                    resolveStatus === "error" ? (isDark ? '#fca5a5' : '#991b1b') :
+                    (isDark ? '#93c5fd' : '#1e40af'),
+                  border: 
+                    resolveStatus === "manual" ? (isDark ? '1px solid #92400e' : '1px solid #fbbf24') : 
+                    resolveStatus === "error" ? (isDark ? '1px solid #991b1b' : '1px solid #fecaca') :
+                    (isDark ? '1px solid #3b82f6' : '1px solid #93c5fd'),
                   whiteSpace: 'pre-line',
                   lineHeight: '1.6'
                 }}>
-                  <div>{resolveStatus === "manual" ? "💡" : "⚠️"} {resolveError}</div>
-                  {(resolveStatus === "error" || resolveStatus === "manual") && url.includes("/share/") && (
-                    <>
-                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${resolveStatus === "manual" ? (isDark ? '#92400e' : '#fbbf24') : (isDark ? '#991b1b' : '#fecaca')}` }}>
-                        <a 
-                          href={url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          style={{
-                            color: resolveStatus === "manual" ? (isDark ? '#fcd34d' : '#92400e') : (isDark ? '#fca5a5' : '#991b1b'),
-                            textDecoration: 'underline',
-                            fontWeight: '600',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          🔗 คลิกที่นี่เพื่อเปิดลิงก์
-                        </a>
-                      </div>
-                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${isDark ? '#92400e' : '#fbbf24'}`, fontSize: '11px' }}>
-                        <strong>💡 เคล็ดลับ:</strong> ถ้าต้องแปลงบ่อยๆ ลอง:
-                        <ul style={{ marginTop: '4px', marginBottom: 0, paddingLeft: '20px' }}>
-                          <li>ติดตั้ง Browser Extension: "Facebook URL Resolver"</li>
-                          <li>หรือใช้ Bookmarklet (ค้นหา "facebook short link resolver bookmarklet")</li>
-                        </ul>
-                      </div>
-                    </>
+                  <div>
+                    {resolveStatus === "manual" ? "📝" : resolveStatus === "error" ? "❌" : "💡"} {resolveError}
+                  </div>
+                  {resolveStatus === "manual" && url.includes("/share/") && (
+                    <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${isDark ? '#92400e' : '#fbbf24'}` }}>
+                      <a 
+                        href={url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{
+                          color: isDark ? '#fcd34d' : '#92400e',
+                          textDecoration: 'underline',
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        🔗 คลิกที่นี่เพื่อเปิดลิงก์อีกครั้ง
+                      </a>
+                    </div>
+                  )}
+                  {resolveStatus === "error" && (
+                    <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${isDark ? '#991b1b' : '#fecaca'}`, fontSize: '11px' }}>
+                      <strong>💡 วิธีแก้:</strong>
+                      <ul style={{ marginTop: '4px', marginBottom: 0, paddingLeft: '20px' }}>
+                        <li>ลองใช้ปุ่ม <strong>"👤 แปลงด้วยตนเอง"</strong> แทน</li>
+                        <li>หรือรันด้วย <code>netlify dev</code> เพื่อใช้ Auto-resolve</li>
+                      </ul>
+                    </div>
                   )}
                 </div>
               )}
