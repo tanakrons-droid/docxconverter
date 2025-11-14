@@ -6,8 +6,100 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileArrowUp, faFileImport, faCopy, faCircleNotch, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { cleanGutenbergTables } from '../utils/cleanGutenbergTables';
-import { convertYouTubeLinksToWPEmbedWithCaption } from '../utils/convertYouTubeLinksToWPEmbedWithCaption';
+import { convertReadMoreToBlock } from '../utils/convertReadMoreToBlock';
+import { addQAHeadingClass } from '../utils/addQAHeadingClass';
+import { removeAltText } from '../utils/removeAltText';
+import { convertTableToButton } from '../utils/convertTableToButton';
+import { convertReadMoreLinks } from '../utils/convertReadMoreLinks';
 
+// ✅ YouTube Detection and Conversion Functions
+function isYouTubeUrl(url) {
+  const ytPatterns = [
+    /^https?:\/\/(www\.)?youtube\.com\/watch\?v=/i,
+    /^https?:\/\/(www\.)?youtube\.com\/shorts\//i,
+    /^https?:\/\/(www\.)?youtube\.com\/embed\//i,
+    /^https?:\/\/youtu\.be\//i,
+    /^https?:\/\/youtube\.com\/watch\?v=/i,
+    /^https?:\/\/youtube\.com\/shorts\//i,
+    /^https?:\/\/(m\.)?youtube\.com\//i
+  ];
+  return ytPatterns.some(pattern => pattern.test(url.trim()));
+}
+
+function extractYouTubeCaption(rawText) {
+  const text = rawText.trim();
+
+  // ดึงส่วน URL (หยุดก่อนตัวอักษรไทย)
+  const match = text.match(/(https?:\/\/[^\s\u0E00-\u0E7F]+)/);
+
+  if (!match) {
+    return { url: null, caption: null };
+  }
+
+  const url = match[1].trim();
+  const caption = text.replace(url, '').trim();
+
+  return {
+    url,
+    caption: caption || null
+  };
+}
+
+function createYouTubeFigcaption(caption) {
+  if (!caption) return '';
+  return `<figcaption class="wp-element-caption">${caption}</figcaption>`;
+}
+
+function createYouTubeGutenbergBlock(url, caption = null) {
+  const figcaptionHTML = createYouTubeFigcaption(caption);
+
+  return `
+<!-- wp:embed {"url":"${url}","type":"video","providerNameSlug":"youtube","responsive":true,"align":"center","className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
+<figure class="wp-block-embed aligncenter is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">
+  <div class="wp-block-embed__wrapper">${url}</div>
+  ${figcaptionHTML}
+</figure>
+<!-- /wp:embed -->
+  `.trim();
+}
+
+// ✅ Image Detection and Conversion Functions
+function extractImageCaptionFromParagraph(p) {
+  const html = p.innerHTML.trim();
+  const style = p.getAttribute("style") || '';
+
+  const isItalic =
+    /<(em|i)(\s|>)/i.test(html) ||
+    /font-style\s*:\s*italic/i.test(style) ||
+    p.querySelector("em") ||
+    p.querySelector("i");
+
+  if (!isItalic) return null;
+  return html.replace(/<\/?p[^>]*>/g, '').trim();
+}
+
+function extractImageMetaFromTag(img, captionHTML = '') {
+  const src = img.getAttribute("src") || '';
+  const alt = img.getAttribute("alt") || captionHTML || '';
+
+  // extract ID from filename 45767.jpg
+  let id = Date.now();
+  const match = src.match(/(\d+)\.(jpg|jpeg|png|webp|gif)$/i);
+  if (match) id = match[1];
+
+  return { src, alt, id, captionHTML };
+}
+
+function createFullImageBlock(meta) {
+  return `
+<!-- wp:image {"id":${meta.id},"sizeSlug":"full","linkDestination":"none"} -->
+<figure class="wp-block-image size-full">
+  <img src="${meta.src}" alt="${meta.alt}" class="wp-image-${meta.id}"/>
+  ${meta.captionHTML ? `<figcaption class="wp-element-caption"><em>${meta.captionHTML}</em></figcaption>` : ''}
+</figure>
+<!-- /wp:image -->
+`.trim();
+}
 
 function Home() {
   const [file, setFile] = useState(null);
@@ -537,43 +629,7 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
         }
         
         // === End helper functions for alignment ===
-        
-        // === Helper functions สำหรับตรวจจับลิงก์ YouTube ===
-        
-        // ดึง URL จาก paragraph (จาก <a href> ก่อน หรือจากข้อความ)
-        function extractUrlFromParagraph(p) {
-          const text = (p.textContent || '').trim();
-          // ถ้ามี <a href> ให้ใช้ href ก่อน
-          const a = p.querySelector && p.querySelector('a');
-          if (a && a.getAttribute('href')) return a.getAttribute('href').trim();
-          // มิฉะนั้น ดึง URL แรกจากข้อความ
-          const m = text.match(/https?:\/\/[^\s<>"']+/i);
-          return m ? m[0] : null;
-        }
-        
-        // ตรวจสอบว่า URL เป็น YouTube หรือไม่
-        function isYouTubeUrl(url) {
-          if (!url) return false;
-          try {
-            const u = new URL(url);
-            const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-            const path = u.pathname || '';
-            return (
-              host === 'youtu.be' ||
-              host === 'youtube.com' ||
-              host === 'm.youtube.com'
-            ) && (
-              /^\/watch/i.test(path) ||
-              /^\/shorts/i.test(path) ||
-              host === 'youtu.be' // youtu.be/<id>
-            );
-          } catch { 
-            return false; 
-          }
-        }
-        
-        // === End helper functions for YouTube ===
-        
+
         // === Normalize all alignment from Word styles and classes ===
         // ตรวจจับและทำให้ alignment เป็นมาตรฐานก่อนประมวลผลต่อ
         // ใช้ isExplicitCentered (ตรวจเฉพาะ element นั้นเอง)
@@ -773,7 +829,14 @@ let previousSibling = articleStart.previousSibling;
 
         // Find all <p> tags and modify them based on their content and child elements
         let checkReferences = false;
-        doc.querySelectorAll('p').forEach((p) => {
+        // ⚠️ แปลง NodeList เป็น Array เพื่อหลีกเลี่ยง live collection issue
+        Array.from(doc.querySelectorAll('p')).forEach((p) => {
+          // 🔒 ตรวจสอบว่า element ยังอยู่ใน DOM หรือไม่
+          if (!p.parentNode) return;
+
+          // 🔒 ป้องกันการแปลงซ้ำ - ถ้า paragraph นี้ถูกแปลงไปแล้ว ข้าม
+          if (p.dataset && p.dataset.handled === "1") return;
+
           // --- Guard to avoid duplicate images above RowLayout (table) ---
           try {
             const imgsInP = p.querySelectorAll && p.querySelectorAll('img');
@@ -791,18 +854,25 @@ let previousSibling = articleStart.previousSibling;
             // ป้องกันการแปลงซ้ำ (ถ้าเป็น figure หรือ embed อยู่แล้ว)
             if (p.tagName && p.tagName.toLowerCase() === 'figure') return;
             if (p.classList && p.classList.contains('wp-block-embed')) return;
-            
-            // ดึง URL จาก paragraph (ใช้ helper function)
-            const ytURL = extractUrlFromParagraph(p);
-            
-            // ตรวจสอบว่าเป็น YouTube URL หรือไม่ (ใช้ helper function)
-            if (isYouTubeUrl(ytURL)) {
-              // แปลงเป็น embed block (คง URL ดิบไว้ทั้งบรรทัด รวมพารามิเตอร์)
-              const embedFigure = `<figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio"><div class="wp-block-embed__wrapper">
-${ytURL}
-</div></figure>`;
-              
-              p.outerHTML = embedFigure;
+
+            // ดึง text content จาก paragraph
+            const rawText = p.textContent.trim();
+
+            // ตรวจสอบว่ามี YouTube URL หรือไม่
+            if (isYouTubeUrl(rawText)) {
+              // แยก URL + caption (ถ้ามี)
+              const { url, caption } = extractYouTubeCaption(rawText);
+
+              // 🔒 ทำเครื่องหมายว่าแปลงแล้ว (ก่อนแทนที่ outerHTML)
+              if (p.dataset) p.dataset.handled = "1";
+
+              // สร้าง YouTube block พร้อม caption (ถ้ามี)
+              const ytBlock = createYouTubeGutenbergBlock(url, caption);
+
+              // ⚠️ ตรวจสอบว่ายังมี parent ก่อนแก้ไข
+              if (p.parentNode) {
+                p.outerHTML = ytBlock;
+              }
               return;
             }
           } catch (e) {}
@@ -903,7 +973,14 @@ const tagImg = p.querySelectorAll('img');
             }
             
             p.outerHTML = `<!-- wp:paragraph {"className":"subtext-gtb"} --><p class="subtext-gtb">${finalHtml}</p><!-- /wp:paragraph -->`;
-          } else if ((!textContent && tagImg.length === 0) || textContent.match(/(^|\s)(alt\s*:\s*|alt\s+:\s*)/i) || textContent.startsWith('(alt') || textContent.startsWith('(Alt') || textContent.startsWith('(ALT')) {
+          } else if ((!textContent && tagImg.length === 0) ||
+                     /^(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
+                     /\b(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
+                     /^(Alt|alt|ALT):/i.test(textContent) ||
+                     textContent.match(/(^|\s)(alt\s*:\s*|alt\s*:)/i) ||
+                     textContent.startsWith('(alt') ||
+                     textContent.startsWith('(Alt') ||
+                     textContent.startsWith('(ALT')) {
             p.remove();
           } else if (textContent.startsWith('อ่านบทความเพิ่มเติม') || textContent.startsWith('อ่านเพิ่มเติม') || textContent.startsWith('คลิกอ่านเพิ่มเติม') || textContent.startsWith('คลิกอ่านบทความ') || textContent.startsWith('หมอได้สรุปข้อมูล')) {
             // ตรวจจับและจัดการข้อความ "อ่านบทความเพิ่มเติม" พร้อมลิงก์
@@ -953,33 +1030,36 @@ const tagImg = p.querySelectorAll('img');
             checkReferences = true;
           } else if (textContent === 'บทความเจาะลึก' || textContent === 'บทความแนะนำ') {
             p.outerHTML = `<!-- wp:paragraph {"align":"center","className":"headline"} --><p class="has-text-align-center headline">${textHtml}</p><!-- /wp:paragraph -->`;
-          } else if (textContent.match(/^\s*(https?:\/\/(www\.|m\.)?youtube\.com\/|https?:\/\/youtu\.be\/)/i)) {
+
+          // ❌ DISABLED: YouTube logic เก่า - ใช้ logic ใหม่ที่ด้านบนแทน (บรรทัด 849-872)
+          /*
+          else if (textContent.match(/^\s*(https?:\/\/(www\.|m\.)?youtube\.com\/|https?:\/\/youtu\.be\/)/i)) {
             // ตรวจจับและจัดการลิงก์ YouTube ตามกฎใหม่
             let youtubeUrl = textContent.trim();
-            
+
             // ตรวจสอบว่ามี <img> อยู่ใกล้หรือในแท็ก <a> เดียวกันหรือไม่
-            const hasImgNearby = p.querySelector('img') !== null || 
+            const hasImgNearby = p.querySelector('img') !== null ||
                                  p.querySelector('a img') !== null ||
                                  (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
                                  (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
-            
+
             // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
             if (hasImgNearby) {
               // คงรูปแบบเดิมไว้
               return;
             }
-            
+
             // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
             let captionText = '';
             const nextP = p.nextElementSibling;
             if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
               const nextText = nextP.textContent.trim();
               const nextHtml = nextP.innerHTML.trim();
-              
+
               // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
               const isCaption = (
-                nextText.length > 0 && 
-                nextText.length < 200 && 
+                nextText.length > 0 &&
+                nextText.length < 200 &&
                 !nextText.startsWith('สารบัญ') &&
                 !nextText.startsWith('อ้างอิง') &&
                 !nextText.startsWith('สรุป') &&
@@ -988,18 +1068,18 @@ const tagImg = p.querySelectorAll('img');
                 !nextText.startsWith('อ่านเพิ่มเติม') &&
                 !nextText.startsWith('บทความ') &&
                 !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
-                (nextHtml.includes('<em>') || nextHtml.includes('<i>') || 
-                 nextText.includes('แคปชั่น') || nextText.includes('caption') || 
+                (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
+                 nextText.includes('แคปชั่น') || nextText.includes('caption') ||
                  nextText.includes('เครดิต') || nextText.includes('credit'))
               );
-              
+
               if (isCaption) {
                 captionText = nextHtml;
                 // ลบ paragraph ที่เป็นแคปชั่น
                 nextP.remove();
               }
             }
-            
+
             // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
             let embedBlock = `
 
@@ -1008,56 +1088,56 @@ const tagImg = p.querySelectorAll('img');
   <div class="wp-block-embed__wrapper">
     ${youtubeUrl}
   </div>`;
-            
+
             // เพิ่ม figcaption ถ้ามีแคปชั่น
             if (captionText) {
               embedBlock += `
   <figcaption class="wp-element-caption">${captionText}</figcaption>`;
             }
-            
+
             embedBlock += `
 </figure>
 <!-- /wp:embed -->
 
 `;
-            
+
             p.outerHTML = embedBlock;
-          } else if (p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]')) {
+          else if (p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]')) {
             // ตรวจจับลิงก์ YouTube ที่อยู่ใน <a> tag
             const youtubeLink = p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]');
             const youtubeUrl = youtubeLink.getAttribute('href');
-            
+
             // ตรวจสอบว่าลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> หรือไม่
             const hasImgInLink = youtubeLink.querySelector('img') !== null;
-            
+
             // หากลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> ให้คงรูปแบบเดิมไว้
             if (hasImgInLink) {
               // คงรูปแบบเดิมไว้
               return;
             }
-            
+
             // ตรวจสอบว่ามี <img> อยู่ใกล้หรือไม่
-            const hasImgNearby = p.querySelector('img') !== null || 
+            const hasImgNearby = p.querySelector('img') !== null ||
                                  (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
                                  (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
-            
+
             // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
             if (hasImgNearby) {
               // คงรูปแบบเดิมไว้
               return;
             }
-            
+
             // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
             let captionText = '';
             const nextP = p.nextElementSibling;
             if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
               const nextText = nextP.textContent.trim();
               const nextHtml = nextP.innerHTML.trim();
-              
+
               // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
               const isCaption = (
-                nextText.length > 0 && 
-                nextText.length < 200 && 
+                nextText.length > 0 &&
+                nextText.length < 200 &&
                 !nextText.startsWith('สารบัญ') &&
                 !nextText.startsWith('อ้างอิง') &&
                 !nextText.startsWith('สรุป') &&
@@ -1066,18 +1146,18 @@ const tagImg = p.querySelectorAll('img');
                 !nextText.startsWith('อ่านเพิ่มเติม') &&
                 !nextText.startsWith('บทความ') &&
                 !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
-                (nextHtml.includes('<em>') || nextHtml.includes('<i>') || 
-                 nextText.includes('แคปชั่น') || nextText.includes('caption') || 
+                (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
+                 nextText.includes('แคปชั่น') || nextText.includes('caption') ||
                  nextText.includes('เครดิต') || nextText.includes('credit'))
               );
-              
+
               if (isCaption) {
                 captionText = nextHtml;
                 // ลบ paragraph ที่เป็นแคปชั่น
                 nextP.remove();
               }
             }
-            
+
             // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
             let embedBlock = `
 
@@ -1086,74 +1166,91 @@ const tagImg = p.querySelectorAll('img');
   <div class="wp-block-embed__wrapper">
     ${youtubeUrl}
   </div>`;
-            
+
             // เพิ่ม figcaption ถ้ามีแคปชั่น
             if (captionText) {
               embedBlock += `
   <figcaption class="wp-element-caption">${captionText}</figcaption>`;
             }
-            
+
             embedBlock += `
 </figure>
 <!-- /wp:embed -->
 
 `;
-            
+
             p.outerHTML = embedBlock;
+          */
           } else if (tagImg.length > 0) {
-            // Check for Alt: text in the paragraph
-            let altText = '';
-            let captionText = '';
-            const paragraphText = textContent.trim();
-            
-            // Enhanced Alt detection for "Alt:" and "Alt :" patterns in paragraphs
-            const altMatch = paragraphText.match(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i);
-            if (altMatch) {
-              altText = altMatch[3].trim();
-              // Remove Alt: text from main content for caption detection
-              const textWithoutAlt = paragraphText.replace(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i, '').trim();
-              
-              // Check if remaining text should be treated as caption
-              if (textWithoutAlt) {
+            // 1) ตรวจจับว่า paragraph ถัดไปเป็นตัวเอียง = caption
+            const nextP = p.nextElementSibling;
+            let captionHTML = '';
+            if (nextP && nextP.tagName === 'P') {
+              const extracted = extractImageCaptionFromParagraph(nextP);
+              if (extracted) {
+                captionHTML = extracted;
+                nextP.remove();
+              }
+            }
+
+            // 2) หากเป็นรูปหลายรูป ให้ใช้ logic เดิม
+            if (tagImg.length > 1) {
+              // Check for Alt: text in the paragraph
+              let altText = '';
+              let captionText = '';
+              const paragraphText = textContent.trim();
+
+              // Enhanced Alt detection for "Alt:" and "Alt :" patterns in paragraphs
+              const altMatch = paragraphText.match(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i);
+              if (altMatch) {
+                altText = altMatch[3].trim();
+                // Remove Alt: text from main content for caption detection
+                const textWithoutAlt = paragraphText.replace(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i, '').trim();
+
+                // Check if remaining text should be treated as caption
+                if (textWithoutAlt) {
+                  const isTextCentered = isCaptionLikelyCentered(p);
+                  const isTextItalic = textHtml.includes('<em>') ||
+                                      textHtml.includes('<i>') ||
+                                      textHtml.includes('font-style: italic') ||
+                                      textHtml.includes('font-style:italic') ||
+                                      textHtml.includes('font-style : italic') ||
+                                      p.querySelector('em') !== null ||
+                                      p.querySelector('i') !== null;
+
+                  if (isTextCentered && isTextItalic) {
+                    captionText = textWithoutAlt;
+                  }
+                }
+              } else if (paragraphText) {
+                // Check if the text should be treated as a caption (centered and italic)
                 const isTextCentered = isCaptionLikelyCentered(p);
-                const isTextItalic = textHtml.includes('<em>') || 
-                                    textHtml.includes('<i>') || 
+                const isTextItalic = textHtml.includes('<em>') ||
+                                    textHtml.includes('<i>') ||
                                     textHtml.includes('font-style: italic') ||
                                     textHtml.includes('font-style:italic') ||
                                     textHtml.includes('font-style : italic') ||
                                     p.querySelector('em') !== null ||
                                     p.querySelector('i') !== null;
-                
+
                 if (isTextCentered && isTextItalic) {
-                  captionText = textWithoutAlt;
+                  captionText = paragraphText;
                 }
               }
-            } else if (paragraphText) {
-              // Check if the text should be treated as a caption (centered and italic)
-              const isTextCentered = isCaptionLikelyCentered(p);
-              const isTextItalic = textHtml.includes('<em>') || 
-                                  textHtml.includes('<i>') || 
-                                  textHtml.includes('font-style: italic') ||
-                                  textHtml.includes('font-style:italic') ||
-                                  textHtml.includes('font-style : italic') ||
-                                  p.querySelector('em') !== null ||
-                                  p.querySelector('i') !== null;
-              
-              if (isTextCentered && isTextItalic) {
-                captionText = paragraphText;
-              }
-            }
-            
-            if (tagImg.length > 1) {
-              // Remove all img tags from this paragraph first to prevent duplicate processing
-              tagImg.forEach(img => img.remove());
-              
-              const newImgItems = Array.from(tagImg).map((img, imgIndex) => {
+
+              // ⭐ เก็บสำเนารูปก่อนลบทิ้ง เพื่อไม่ให้ข้อมูลหาย
+              const imgs = Array.from(tagImg);
+
+              // ลบ <img> ออกจาก <p>
+              imgs.forEach(img => img.remove());
+
+              // ใช้ imgs ที่สำรองไว้เพื่อสร้าง block
+              const newImgItems = imgs.map((img, imgIndex) => {
                 const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                 let columnContent = `<!-- wp:image -->
 <figure class="wp-block-image"><img alt="${altText}"/></figure>
 <!-- /wp:image -->`;
-                
+
                 // Add caption only to the first image if there's caption text
                 if (imgIndex === 0 && captionText) {
                   columnContent += `
@@ -1161,26 +1258,37 @@ const tagImg = p.querySelectorAll('img');
 <p class="has-text-align-center">${captionText}</p>
 <!-- /wp:paragraph -->`;
                 }
-                
+
                 return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
 <div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col">${columnContent}</div></div>
 <!-- /wp:kadence/column -->`;
               }).join('');
-              
+
               const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
-              p.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
-            } else {
-              // Remove the img tag from this paragraph first to prevent duplicate processing
-              tagImg.forEach(img => img.remove());
-              
-              let imageBlock = `<!-- wp:image --><figure class="wp-block-image"><img alt="${altText}"/></figure><!-- /wp:image -->`;
-              
-              if (captionText) {
-                imageBlock += `<!-- wp:paragraph {"align":"center"} --><p class="has-text-align-center">${captionText}</p><!-- /wp:paragraph -->`;
+
+              // 🔒 ทำเครื่องหมายว่าแปลงแล้ว (ก่อนแทนที่ outerHTML)
+              if (p.dataset) p.dataset.handled = "1";
+
+              // ⚠️ ตรวจสอบว่ายังมี parent ก่อนแก้ไข
+              if (p.parentNode) {
+                p.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
               }
-              
-              p.outerHTML = imageBlock;
+              return;
             }
+
+            // 3) รูปเดี่ยว — ใช้ Gutenberg block แบบเต็ม
+            const img = tagImg[0];
+            const meta = extractImageMetaFromTag(img, captionHTML);
+            const block = createFullImageBlock(meta);
+
+            // 🔒 ทำเครื่องหมายว่าแปลงแล้ว (ก่อนแทนที่ outerHTML)
+            if (p.dataset) p.dataset.handled = "1";
+
+            // ⚠️ ตรวจสอบว่ายังมี parent ก่อนแก้ไข
+            if (p.parentNode) {
+              p.outerHTML = block;
+            }
+            return;
           } else if (startsWithQuote && endsWithQuote) {
             textContent = textContent.slice(1, -1).trim();
             p.outerHTML = `<!-- wp:quote --><blockquote class="wp-block-quote"><!-- wp:paragraph --><p>${textContent}</p><!-- /wp:paragraph --></blockquote><!-- /wp:quote -->`;
@@ -2269,8 +2377,20 @@ ${columnsHTML}
         // ★ เพิ่มขั้นตอน: ทำความสะอาดตาราง Gutenberg ให้พร้อมใช้งาน
         htmlString = cleanGutenbergTables(htmlString);
 
-        // ★ เพิ่มขั้นตอน: แปลง YouTube Links เป็น Gutenberg Embed Blocks พร้อม Caption
-        htmlString = convertYouTubeLinksToWPEmbedWithCaption(htmlString);
+        // ★ เพิ่มขั้นตอน: แปลง "อ่านเพิ่มเติม" ให้เป็น Gutenberg Block พิเศษ
+        htmlString = convertReadMoreToBlock(htmlString);
+
+        // ★ เพิ่มขั้นตอน: เพิ่ม class="headtext" ให้กับหัวข้อคำถามใน Q&A section
+        htmlString = addQAHeadingClass(htmlString);
+        
+        // ★ เพิ่มขั้นตอน: ลบข้อความ Alt ที่อยู่ใต้รูปภาพ
+        htmlString = removeAltText(htmlString);
+        
+        // ★ เพิ่มขั้นตอน: แปลง "อ่านบทความเพิ่มเติม" เป็น Gutenberg Paragraph Block
+        htmlString = convertReadMoreLinks(htmlString);
+        
+        // ★ เพิ่มขั้นตอน: แปลง table ที่มีลิงก์เดียวเป็น Gutenberg Button Block
+        htmlString = convertTableToButton(htmlString);
 
         // ประมวลผลลิงก์ตามเว็บไซต์ที่เลือก
         htmlString = processLinks(htmlString, selectedWebsite);

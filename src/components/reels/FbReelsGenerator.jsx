@@ -248,9 +248,10 @@ export default function FbReelsGenerator({ variant = "modal" }) {
   };
 
   // Auto-resolve ผ่าน Serverless Function
+  // รองรับทั้ง Production (Netlify deployed) และ Development (netlify dev)
   const handleAutoResolve = async () => {
     const currentUrl = url.trim();
-    
+
     if (!currentUrl) {
       alert("กรุณาใส่ลิงก์ก่อนดึงข้อมูล");
       return;
@@ -266,11 +267,49 @@ export default function FbReelsGenerator({ variant = "modal" }) {
     setResolveError("");
 
     try {
-      // Try to use Netlify Function
-      const apiEndpoint = '/.netlify/functions/resolve-url';
+      // ========================================
+      // กำหนด API Endpoint อัตโนมัติ
+      // ========================================
+      // รองรับ 3 สถานการณ์:
+      // 1. Production บน Netlify (https://your-site.netlify.app)
+      // 2. Development ด้วย netlify dev (http://localhost:8888)
+      // 3. Development ธรรมดา (http://localhost:3000) - แต่จะใช้ production API
 
-      console.log('🚀 Attempting auto-resolve via:', apiEndpoint);
-      
+      let apiBaseUrl;
+      const currentHost = window.location.hostname;
+      const currentProtocol = window.location.protocol;
+      const currentPort = window.location.port;
+
+      console.log('🔍 [Auto-Resolve] Detecting environment...');
+      console.log('  - Hostname:', currentHost);
+      console.log('  - Protocol:', currentProtocol);
+      console.log('  - Port:', currentPort);
+
+      // ตรวจสอบว่ารันบน localhost หรือไม่
+      if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+        // Development mode
+        if (currentPort === '8888') {
+          // netlify dev (port 8888 is default for netlify dev)
+          apiBaseUrl = `${currentProtocol}//${currentHost}:${currentPort}`;
+          console.log('✅ [Auto-Resolve] Detected: netlify dev');
+        } else {
+          // React dev server (port 3000) - ต้องใช้ production API
+          // เปลี่ยน URL นี้เป็น Netlify site ของคุณ
+          apiBaseUrl = 'https://YOUR-SITE-NAME.netlify.app';
+          console.log('⚠️  [Auto-Resolve] Detected: React dev server');
+          console.log('   Using production API:', apiBaseUrl);
+          console.log('   💡 Tip: Run "netlify dev" to test functions locally');
+        }
+      } else {
+        // Production mode - ใช้ current URL
+        apiBaseUrl = `${currentProtocol}//${currentHost}`;
+        console.log('✅ [Auto-Resolve] Detected: Production deployment');
+      }
+
+      const apiEndpoint = `${apiBaseUrl}/.netlify/functions/resolve-url`;
+      console.log('🚀 [Auto-Resolve] API Endpoint:', apiEndpoint);
+      console.log('🚀 [Auto-Resolve] Resolving URL:', currentUrl);
+
       const response = await fetch(`${apiEndpoint}?url=${encodeURIComponent(currentUrl)}`, {
         method: 'GET',
         headers: {
@@ -278,49 +317,93 @@ export default function FbReelsGenerator({ variant = "modal" }) {
         },
       });
 
+      console.log('📡 [Auto-Resolve] Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ [Auto-Resolve] Server error:', errorText);
+        throw new Error(`Server returned ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('📦 [Auto-Resolve] Response data:', data);
 
       if (data.success && data.finalUrl && data.finalUrl !== currentUrl) {
         // Successfully resolved!
-        console.log('✅ Auto-resolve succeeded:', data.finalUrl);
-        
+        console.log('✅ [Auto-Resolve] Success!');
+        console.log('   Original:', currentUrl);
+        console.log('   Resolved:', data.finalUrl);
+        console.log('   Method:', data.method);
+
         setUrl(data.finalUrl);
         setResolveStatus("success");
-        
+
         // Re-analyze the new URL
         const res = analyzeIncoming(data.finalUrl);
         setUrl(res.url);
-        setUrlNotice({ type: "ok", msg: "✅ แปลงลิงก์สำเร็จ! (Auto-resolve)" });
+        setUrlNotice({
+          type: "ok",
+          msg: `✅ แปลงลิงก์สำเร็จ! (${data.method || 'auto-resolve'})`
+        });
 
         // Auto-hide success message after 3 seconds
         setTimeout(() => {
           setResolveStatus("");
         }, 3000);
       } else {
-        throw new Error("Could not resolve URL from server");
+        console.warn('⚠️  [Auto-Resolve] Could not resolve URL');
+        console.warn('   Response:', data);
+        throw new Error(data.message || "Could not resolve URL from server");
       }
 
     } catch (error) {
-      console.error("❌ Auto-resolve failed:", error);
-      
+      console.error("❌ [Auto-Resolve] Failed:", error);
+      console.error("   Error details:", error.message);
+
       setResolveStatus("error");
-      setResolveError(
-        "❌ Auto-resolve ล้มเหลว\n\n" +
-        "สาเหตุที่เป็นไปได้:\n" +
-        "• ยังไม่ได้ deploy บน Netlify/Vercel\n" +
-        "• ยังไม่ได้รันด้วย netlify dev\n" +
-        "• Serverless Function ไม่พร้อมใช้งาน\n\n" +
-        "💡 ลองใช้ปุ่ม \"แปลงด้วยตนเอง\" แทน"
-      );
-      
+
+      // สร้าง error message ที่เหมาะสม
+      let errorMessage = "❌ Auto-resolve ล้มเหลว\n\n";
+
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        errorMessage +=
+          "🔌 ปัญหา: ไม่สามารถเชื่อมต่อ API ได้\n\n" +
+          "สาเหตุที่เป็นไปได้:\n" +
+          "• ยังไม่ได้ deploy Function บน Netlify\n" +
+          "• กำลังรัน React dev server (port 3000) แต่ยังไม่ได้ตั้งค่า production API\n" +
+          "• ไม่มีอินเทอร์เน็ต\n\n" +
+          "💡 วิธีแก้:\n" +
+          "• รัน 'netlify dev' แทน 'npm start' (สำหรับทดสอบ function ในเครื่อง)\n" +
+          "• หรือ deploy โปรเจคบน Netlify แล้วใช้งานผ่าน production URL\n" +
+          "• หรือใช้ปุ่ม \"👤 แปลงด้วยตนเอง\" แทน";
+      } else if (error.message.includes('404')) {
+        errorMessage +=
+          "🔍 ปัญหา: ไม่พบ Function (404)\n\n" +
+          "สาเหตุ: Netlify Function ยังไม่ถูก deploy\n\n" +
+          "💡 วิธีแก้:\n" +
+          "• ตรวจสอบว่าโฟลเดอร์ netlify/functions/resolve-url.js มีอยู่จริง\n" +
+          "• Deploy โปรเจคใหม่บน Netlify\n" +
+          "• ตรวจสอบ Build log บน Netlify Dashboard";
+      } else if (error.message.includes('500')) {
+        errorMessage +=
+          "⚠️  ปัญหา: Server Error (500)\n\n" +
+          "สาเหตุ: Function มี error ภายใน\n\n" +
+          "💡 วิธีแก้:\n" +
+          "• ดู Function logs บน Netlify Dashboard\n" +
+          "• ตรวจสอบว่า node-fetch ติดตั้งถูกต้อง\n" +
+          "• ทดสอบ function ด้วย netlify dev";
+      } else {
+        errorMessage +=
+          `ข้อผิดพลาด: ${error.message}\n\n` +
+          "💡 ลองใช้ปุ่ม \"👤 แปลงด้วยตนเอง\" แทน";
+      }
+
+      setResolveError(errorMessage);
+
       setTimeout(() => {
         setResolveStatus("");
         setResolveError("");
-      }, 10000);
+      }, 15000);
     }
   };
 
